@@ -86,18 +86,17 @@ fun MainScreen(
                     modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(10.dp).background(Color(0xa011151b), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
             }
         } else {
-            BottomSheetScaffold(
-                modifier = safeContent,
-                scaffoldState = rememberBottomSheetScaffoldState(),
-                sheetPeekHeight = if (model == null) 0.dp else 92.dp,
-                sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                sheetContainerColor = Color(0xff1b222c),
-                sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) },
-                sheetDragHandle = {
-                    if (model != null) BottomSheetDefaults.DragHandle(modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp))
-                },
-                contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
-            ) { sheetPadding ->
+                BottomSheetScaffold(
+                    modifier = safeContent,
+                    scaffoldState = rememberBottomSheetScaffoldState(),
+                    sheetPeekHeight = if (model == null) 0.dp else 92.dp,
+                    sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    sheetContainerColor = Color(0xff1b222c),
+                    sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) },
+                    sheetDragHandle = {
+                        if (model != null) BottomSheetDefaults.DragHandle(modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp))
+                    }
+                ) { sheetPadding ->
                 Column(Modifier.fillMaxSize().padding(sheetPadding)) {
                     PortraitHeader(model, onOpenFile, glView)
                     LazyRow(
