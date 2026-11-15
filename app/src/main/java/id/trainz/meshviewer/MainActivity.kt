@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
             val model by meshState
             val labels by attachmentState
             MaterialTheme {
-                MainScreen(model, view, renderer, labels, { openMesh.launch(arrayOf("*/*")) }, { openFolder.launch(null) }, {})
+                MainScreen(model, view, renderer, labels, { openMesh.launch(arrayOf("*/*")) }, { openFolder.launch(null) })
                 if (showFolderDialog) AlertDialog(onDismissRequest = { showFolderDialog = false }, title = { Text("Pilih mesh") },
                     text = { androidx.compose.foundation.lazy.LazyColumn { items(folderChildren.size) { i -> val f=folderChildren[i]; TextButton(onClick = { showFolderDialog=false; f.uri.let { loadMesh(it, DocumentFile.fromTreeUri(context, currentTreeUri!!)) } }) { Text(f.name ?: "mesh") } } } },
                     confirmButton = { TextButton(onClick = { showFolderDialog=false }) { Text("Batal") } })
