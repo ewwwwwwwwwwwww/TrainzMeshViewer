@@ -73,9 +73,84 @@ object TrainzMeshParser {
         if (nested != null && nested.isNotEmpty()) {
             val children = nested.filter { it.id == "CHNK" || it.id == "GEOM" }
             if (children.isNotEmpty()) return children.flatMapIndexed { i, child -> collectMeshes(child, "${name}_$i", format) }
-            if (nested.any { it.id == "VERT" || it.id == "TRIS" }) return listOf(parseGeometryChunks(nested, name))
+            if (nested.any { it.id in GEOM_TAGS }) {
+                runCatching { parseGeometryChunks(nested, name) }.getOrNull()?.let { return listOf(it) }
+            }
         }
-        error("${chunk.id} chunk does not contain a supported GEOM/CHNK vertex and index payload.")
+        runCatching { scanGeomPayload(chunk.data, name) }.getOrNull()?.let { return listOf(it) }
+        val bytes = ByteArray(minOf(64, chunk.data.remaining())).also { chunk.data.duplicate().get(it) }
+        val hex = bytes.joinToString(" ") { "%02X".format(it.toInt() and 255) }
+        error("GEOM (size=${chunk.data.remaining()}) unsupported layout. First 64B: $hex")
+    }
+
+    private val GEOM_TAGS = setOf("CHNK", "VRTX", "INDX", "TRIS", "FACE", "NORM", "UV00", "VERT")
+
+    /** Walks tagged records without assuming that the GEOM version header has a fixed length. */
+    private fun scanGeomPayload(source: ByteBuffer, name: String): SubMesh {
+        val data = source.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+        val candidates = mutableListOf<Chunk>()
+        for (start in 0..minOf(8, data.remaining() - 8).coerceAtLeast(0)) {
+            val id = peekAscii(data, start, 4)
+            if (id in GEOM_TAGS) {
+                val size = uint32At(data, start + 4)
+                if (size <= data.remaining() - start - 8L) {
+                    val part = data.duplicate().apply { position(position() + start + 8) }.slice().order(ByteOrder.LITTLE_ENDIAN)
+                    part.limit(size.toInt()); candidates += Chunk(id, part)
+                }
+            }
+        }
+        var vertexData: ByteBuffer? = null; var indexData: ByteBuffer? = null; var material = 0
+        candidates.forEach { c -> when (c.id) {
+            "CHNK" -> runCatching { parseGeomChnk(c.data, name) }.getOrNull()?.let { return it }
+            "VRTX", "VERT" -> vertexData = c.data
+            "INDX", "TRIS", "FACE" -> indexData = c.data
+        } }
+        val vb = vertexData ?: error("Missing GEOM vertices")
+        val ib = indexData ?: error("Missing GEOM indices")
+        val v = parseStrideVertices(vb)
+        val ix = parseRawIndices(ib, v.size / 8)
+        require(ix.all { it in 0 until v.size / 8 })
+        return SubMesh(name, material, v, ix)
+    }
+
+    private fun parseGeomChnk(src: ByteBuffer, name: String): SubMesh {
+        val b = src.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+        require(b.remaining() >= 20)
+        val version = uint32(b); require(version in 100..65535)
+        val material = uint32(b).toInt(); uint32(b) // material and primitive type
+        val vertices = boundedCount(uint32(b), "vertex")
+        val indices = boundedCount(uint32(b), "index")
+        val remaining = b.remaining()
+        val vertexBytes = (24..64 step 4).firstOrNull { vertices > 0 && vertices.toLong() * it <= remaining }
+            ?: error("Invalid CHNK vertex block")
+        val v = parseStrideVertices(b.slice().order(ByteOrder.LITTLE_ENDIAN).apply { limit(vertices * vertexBytes) })
+        b.position(b.position() + vertices * vertexBytes)
+        val ix = parseRawIndices(b.slice().order(ByteOrder.LITTLE_ENDIAN), v.size / 8, indices)
+        return SubMesh(name, material, v, ix)
+    }
+
+    private fun parseStrideVertices(src: ByteBuffer): FloatArray {
+        val b = src.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+        var count = -1
+        if (b.remaining() >= 4) { val declared = uint32At(b, 0); if (declared <= MAX_ITEMS && b.remaining() - 4 >= declared * 24L && declared > 0) { count = declared.toInt(); b.position(b.position() + 4) } }
+        val stride = (24..64 step 4).firstOrNull { s -> count > 0 && b.remaining().toLong() == count.toLong() * s || count < 0 && b.remaining() % s == 0 }
+            ?: error("Unsupported vertex stride")
+        if (count < 0) count = b.remaining() / stride
+        val out = FloatArray(count * 8)
+        repeat(count) { i -> val x=b.float; val y=b.float; val z=b.float; val nx=b.float; val ny=b.float; val nz=b.float; val u=b.float; val v=b.float
+            val p=i*8; out[p]=x; out[p+1]=z; out[p+2]=-y; out[p+3]=nx; out[p+4]=nz; out[p+5]=-ny; out[p+6]=u; out[p+7]=v
+            b.position(b.position() + stride - 32)
+        }
+        return out
+    }
+
+    private fun parseRawIndices(src: ByteBuffer, vertexCount: Int, expected: Int = -1): IntArray {
+        val b=src.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+        val count = if (expected >= 0) expected else if (b.remaining() >= 4 && uint32At(b,0) <= MAX_ITEMS && (b.remaining()-4).toLong() in setOf(uint32At(b,0)*2,uint32At(b,0)*4)) uint32(b).toInt() else -1
+        val width = when { count >= 0 && b.remaining().toLong()==count*2L -> 2; count >= 0 && b.remaining().toLong()==count*4L -> 4; b.remaining()%2==0 -> 2; else -> 4 }
+        val n = if(count>=0) count else b.remaining()/width
+        val out=IntArray(n) { if(width==2) b.short.toInt() and 65535 else uint32(b).toInt() }
+        require(out.all { it in 0 until vertexCount }); return out
     }
 
     /** IDXM/PRGM containers prefix their nested chunk stream with a uint32 version. */
