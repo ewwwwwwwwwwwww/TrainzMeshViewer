@@ -92,9 +92,7 @@ fun MainScreen(
                 sheetPeekHeight = if (model == null) 0.dp else 92.dp,
                 sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                 sheetContainerColor = Color(0xff1b222c),
-                sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) },
-                sheetDragHandle = {
-                    if (model != null) BottomSheetDefaults.DragHandle(modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp))
+                sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) }
                 },
                 contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
             ) { sheetPadding ->
