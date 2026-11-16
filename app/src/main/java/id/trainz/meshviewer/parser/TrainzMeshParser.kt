@@ -99,26 +99,28 @@ object TrainzMeshParser {
             try {
                 require(b.remaining() >= 48) { "Truncated sub-mesh header" }
                 uint32(b) // flags
-                val min = FloatArray(3) { b.float }; val max = FloatArray(3) { b.float }
+                val max = FloatArray(3) { b.float }; val min = FloatArray(3) { b.float }
                 val material = uint32(b).toInt(); uint32(b) // material, primitive type
                 var parsed: SubMesh? = null
-                for (vertexOffset in 48..64 step 4) {
-                    for (countWords in 2..3) {
-                        val header = start + vertexOffset - countWords * 4
-                        if (header < start + 36 || header + countWords * 4 > b.limit()) continue
-                        val h = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(header) }
-                        val nv = uint32(h); val ni = uint32(h); val nt = if (countWords == 3) uint32(h) else 0L
-                        val indices = if (ni == 0L) nt * 3 else ni
-                        if (nv !in 1L..500_000L || indices !in 3L..1_500_000L) continue
+                val layouts = listOf(44 to 2, 48 to 3, 52 to 4, 56 to 5)
+                for ((vertexOffset, words) in layouts) {
+                    val h = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(start + 36) }
+                    val counts = LongArray(words) { uint32(h) }
+                    val nv = counts[0]
+                    if (nv !in 1L..500_000L) continue
+                    for (rawCount in counts.drop(1)) for (indices in listOf(rawCount, rawCount * 3L)) {
+                        if (indices !in 3L..1_500_000L) continue
                         val vertexStart = start + vertexOffset
                         if (vertexStart > b.limit()) continue
                         for (stride in listOf(32, 24, 36, 40, 44, 48, 52, 64)) {
                             for (indexSize in listOf(2, 4)) {
                                 val end = vertexStart.toLong() + nv * stride + indices * indexSize
-                                if (end > b.limit()) continue
+                                val remainder = b.limit().toLong() - end
+                                if (end > b.limit() || remainder < 0 || (subIndex == count - 1 && remainder > 16)) continue
                                 val vbuf = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(vertexStart); limit(vertexStart + nv.toInt() * stride) }.slice().order(ByteOrder.LITTLE_ENDIAN)
-                                val xyz = FloatArray(3) { vbuf.getFloat(it * 4) }
-                                if ((0..2).any { xyz[it] < min[it] - .1f || xyz[it] > max[it] + .1f }) continue
+                                if ((0..2).any { min[it] > max[it] }) continue
+                                val samples = listOf(0, nv.toInt() / 2, nv.toInt() - 1).distinct()
+                                if (samples.any { sample -> (0..2).any { axis -> val x=vbuf.getFloat(sample * stride + axis * 4); !x.isFinite() || x < min[axis] - .5f || x > max[axis] + .5f } }) continue
                                 val verts = parseStrideVertices(vbuf)
                                 val ibuf = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(vertexStart + nv.toInt() * stride); limit(end.toInt()) }
                                 val ix = IntArray(indices.toInt()) { if (indexSize == 2) ibuf.short.toInt() and 65535 else uint32(ibuf).toInt() }
@@ -134,10 +136,11 @@ object TrainzMeshParser {
                 }
                 result += parsed ?: error("No valid vertex/index layout")
             } catch (e: Exception) {
-                val bytes = ByteArray(minOf(48, b.limit() - start).coerceAtLeast(0))
-                b.duplicate().apply { position(start); get(bytes) }
-                val hex = bytes.joinToString(" ") { "%02X".format(it.toInt() and 255) }
-                throw IllegalArgumentException("GEOM sub-mesh $subIndex failed: ${e.message}. First 48B: $hex", e)
+                val dumpStart = minOf(start + 28, b.limit())
+                val bytes = ByteArray(minOf(36, b.limit() - dumpStart).coerceAtLeast(0))
+                b.duplicate().apply { position(dumpStart); get(bytes) }
+                val hex = bytes.toList().chunked(4).joinToString(" ") { word -> word.joinToString("") { "%02X".format(it.toInt() and 255) } }
+                throw IllegalArgumentException("Sub$subIndex fail off28..63: $hex", e)
             }
         }
         return result
