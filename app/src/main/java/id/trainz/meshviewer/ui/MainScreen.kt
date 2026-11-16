@@ -95,8 +95,7 @@ fun MainScreen(
                 sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) },
                 sheetDragHandle = {
                     if (model != null) BottomSheetDefaults.DragHandle(modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp))
-                },
-                contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
+                }
             ) { sheetPadding ->
                 Column(Modifier.fillMaxSize().padding(sheetPadding)) {
                     PortraitHeader(model, onOpenFile, glView)
