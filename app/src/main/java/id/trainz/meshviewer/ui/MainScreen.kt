@@ -86,22 +86,23 @@ fun MainScreen(
                     modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(10.dp).background(Color(0xa011151b), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
             }
         } else {
-                BottomSheetScaffold(
-                    modifier = safeContent,
-                    scaffoldState = rememberBottomSheetScaffoldState(),
-                    sheetPeekHeight = if (model == null) 0.dp else 92.dp,
-                    sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    sheetContainerColor = Color(0xff1b222c),
-                    sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) },
-                    sheetDragHandle = {
-                        if (model != null) BottomSheetDefaults.DragHandle(modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp))
-                    }
-                ) { sheetPadding ->
+            BottomSheetScaffold(
+                modifier = safeContent,
+                scaffoldState = rememberBottomSheetScaffoldState(),
+                sheetPeekHeight = if (model == null) 0.dp else 92.dp,
+                sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                sheetContainerColor = Color(0xff1b222c),
+                sheetContent = { StatsSheet(model, Modifier.navigationBarsPadding()) },
+                sheetDragHandle = {
+                    if (model != null) BottomSheetDefaults.DragHandle(modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp))
+                },
+                contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
+            ) { sheetPadding ->
                 Column(Modifier.fillMaxSize().padding(sheetPadding)) {
                     PortraitHeader(model, onOpenFile, glView)
-                    LazyRow(
+                    if (model != null) LazyRow(
                         modifier = Modifier.fillMaxWidth().background(Color(0xff151a21)).heightIn(min = 56.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -141,6 +142,13 @@ private fun ToggleChip(label: String, icon: androidx.compose.ui.graphics.vector.
     FilterChip(
         selected = selected, onClick = onClick,
         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).heightIn(min = 48.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = Color(0xff202832), labelColor = Color(0xffe4eaf2), iconColor = Color(0xffe4eaf2),
+            selectedContainerColor = Color(0xff43566e), selectedLabelColor = Color.White, selectedLeadingIconColor = Color.White
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true, selected = selected, borderColor = Color(0xff77889c), selectedBorderColor = Color(0xffa9c7e8)
+        ),
         label = { Text(label, maxLines = 1) },
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp)) }
     )
@@ -165,7 +173,9 @@ private fun EmptyState(onOpenFile: () -> Unit, onOpenFolder: () -> Unit, modifie
             Button(onClick = onOpenFile, modifier = Modifier.fillMaxWidth().defaultMinSize(minWidth = 48.dp, minHeight = 56.dp)) {
                 Icon(Icons.Default.FolderOpen, null); Spacer(Modifier.width(8.dp)); Text("Pilih File Mesh (.im / .pm)")
             }
-            OutlinedButton(onClick = onOpenFolder, modifier = Modifier.fillMaxWidth().defaultMinSize(minWidth = 48.dp, minHeight = 52.dp)) { Text("Pilih Folder Aset") }
+            OutlinedButton(onClick = onOpenFolder, modifier = Modifier.fillMaxWidth().defaultMinSize(minWidth = 48.dp, minHeight = 52.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xffd9e7f5)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xff9aafc5))) { Text("Pilih Folder Aset") }
         }
     }
 }

@@ -16,7 +16,16 @@ object TrainzTextureLoader {
 
     /** Loads sidecar textures from a SAF folder. File providers that don't expose siblings simply report missing. */
     fun loadFolder(resolver: ContentResolver, folder: DocumentFile, materials: List<MaterialInfo>): Result {
-        val files = folder.listFiles().associateBy { it.name?.lowercase().orEmpty() }
+        val files = mutableMapOf<String, DocumentFile>()
+        fun collect(dir: DocumentFile, depth: Int) {
+            dir.listFiles().forEach { file ->
+                if (file.isDirectory) { if (depth < 3) collect(file, depth + 1) }
+                else if (file.name?.lowercase()?.let { name -> listOf(".texture.txt", ".tga", ".png", ".jpg", ".bmp").any(name::endsWith) } == true) {
+                    file.name?.lowercase()?.let { files.putIfAbsent(it, file) }
+                }
+            }
+        }
+        collect(folder, 0)
         val loaded = mutableMapOf<Int, Bitmap>()
         val updated = materials.mapIndexed { index, material ->
             val ref = material.textureRef ?: return@mapIndexed material

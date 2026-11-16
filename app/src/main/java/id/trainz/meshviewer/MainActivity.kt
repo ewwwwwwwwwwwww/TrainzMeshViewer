@@ -8,7 +8,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.documentfile.provider.DocumentFile
 import androidx.compose.material3.*
-import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import id.trainz.meshviewer.gl.MeshGLSurfaceView
 import id.trainz.meshviewer.gl.MeshRenderer
@@ -35,13 +34,12 @@ class MainActivity : ComponentActivity() {
         renderer = MeshRenderer(this).also { r -> r.onAttachmentProjection = { positions -> runOnUiThread { attachmentState.value = positions } } }
         view = MeshGLSurfaceView(this, renderer!!)
         setContent {
-            val context = LocalContext.current
             val model by meshState
             val labels by attachmentState
             MaterialTheme {
                 MainScreen(model, view, renderer, labels, { openMesh.launch(arrayOf("*/*")) }, { openFolder.launch(null) })
                 if (showFolderDialog) AlertDialog(onDismissRequest = { showFolderDialog = false }, title = { Text("Pilih mesh") },
-                    text = { androidx.compose.foundation.lazy.LazyColumn { items(folderChildren.size) { i -> val f=folderChildren[i]; TextButton(onClick = { showFolderDialog=false; f.uri.let { loadMesh(it, DocumentFile.fromTreeUri(context, currentTreeUri!!)) } }) { Text(f.name ?: "mesh") } } } },
+                    text = { androidx.compose.foundation.lazy.LazyColumn { items(folderChildren.size) { i -> val f=folderChildren[i]; TextButton(onClick = { showFolderDialog=false; loadMesh(f.uri, currentTreeUri?.let { DocumentFile.fromTreeUri(this@MainActivity, it) }) }) { Text(f.name ?: "mesh") } } } },
                     confirmButton = { TextButton(onClick = { showFolderDialog=false }) { Text("Batal") } })
             }
         }
@@ -51,8 +49,19 @@ class MainActivity : ComponentActivity() {
         currentTreeUri = uri
         contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val tree = DocumentFile.fromTreeUri(this, uri) ?: return
-        folderChildren.clear(); folderChildren.addAll(tree.listFiles().filter { it.name?.endsWith(".im", true) == true || it.name?.endsWith(".pm", true) == true })
+        folderChildren.clear(); folderChildren.addAll(findMeshes(tree))
         if (folderChildren.size == 1) loadMesh(folderChildren.first().uri, tree) else if (folderChildren.isEmpty()) Toast.makeText(this, "Tidak ada file .im/.pm di folder ini", Toast.LENGTH_LONG).show() else showFolderDialog = true
+    }
+    private fun findMeshes(root: DocumentFile): List<DocumentFile> {
+        val found = mutableListOf<DocumentFile>()
+        fun visit(dir: DocumentFile, depth: Int) {
+            dir.listFiles().forEach { child ->
+                if (child.isDirectory) { if (depth < 3) visit(child, depth + 1) }
+                else if (child.name?.endsWith(".im", true) == true || child.name?.endsWith(".pm", true) == true) found += child
+            }
+        }
+        visit(root, 0)
+        return found
     }
     private fun loadMesh(uri: Uri, folder: DocumentFile?, persistGrant: Boolean = false) {
         if (persistGrant) runCatching { contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }

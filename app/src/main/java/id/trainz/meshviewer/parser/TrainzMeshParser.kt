@@ -4,6 +4,9 @@ import id.trainz.meshviewer.model.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.Charset
+import java.io.ByteArrayInputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.InflaterInputStream
 
 /** Defensive parser for the JIRF chunk layouts used by the viewer. */
 object TrainzMeshParser {
@@ -14,16 +17,25 @@ object TrainzMeshParser {
     private data class Chunk(val id: String, val data: ByteBuffer)
 
     fun parse(bytes: ByteArray, displayName: String): TrainzModel {
-        require(bytes.size >= 4) { "File terlalu pendek untuk memiliki header mesh." }
-        val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val data = when {
+            bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte() -> GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
+            bytes.size >= 2 && bytes[0] == 0x78.toByte() && (bytes[1].toInt() and 0xff) in setOf(0x01, 0x5e, 0x9c, 0xda) -> InflaterInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
+            else -> bytes
+        }
+        require(data.size >= 4) { "File terlalu pendek untuk memiliki header mesh." }
+        val input = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
         val first = readAscii(input, 4)
         if (first == "ANIM") throw IllegalArgumentException(ANIMATION_ERROR)
-        require(bytes.size >= 12) { "File is shorter than the 12-byte JIRF header." }
-        require(first == "JIRF") { "Invalid magic; expected JIRF." }
+        require(first == "JIRF") {
+            val ascii = data.take(4).map { b -> val c = b.toInt() and 0xff; if (c in 32..126) c.toChar() else '.' }.joinToString("")
+            val hex = data.take(4).joinToString(" ") { "%02X".format(it.toInt() and 0xff) }
+            "Invalid magic: got '$ascii' ($hex), expected 'JIRF'"
+        }
+        require(data.size >= 12) { "File is shorter than the 12-byte JIRF header." }
         val declared = uint32(input)
         val format = readAscii(input, 4)
         if (format == "ANIM") throw IllegalArgumentException(ANIMATION_ERROR)
-        require(declared == (bytes.size - 8).toLong()) { "Header length does not match file size." }
+        require(declared == (data.size - 8).toLong()) { "Header length does not match file size." }
         require(format in GEOMETRY_TYPES) { "Unsupported mesh type '$format'. Expected IDXM, IMSH, PRGM, or PMSH." }
 
         val chunks = readChunks(input.slice().order(ByteOrder.LITTLE_ENDIAN))
