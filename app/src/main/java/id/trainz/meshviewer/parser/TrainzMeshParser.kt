@@ -68,6 +68,9 @@ object TrainzMeshParser {
     }
 
     private fun collectMeshes(chunk: Chunk, name: String, format: String): List<SubMesh> {
+        if (chunk.id == "GEOM" && format == "IDXM" && chunk.data.remaining() >= 8 && uint32At(chunk.data, 0) in 200L..205L) {
+            return parseLegacyGeom200(chunk.data, name)
+        }
         val payload = unwrapVersion(chunk, format)
         val nested = runCatching { readChunks(payload.duplicate().order(ByteOrder.LITTLE_ENDIAN)) }.getOrNull()
         if (nested != null && nested.isNotEmpty()) {
@@ -84,6 +87,61 @@ object TrainzMeshParser {
     }
 
     private val GEOM_TAGS = setOf("CHNK", "VRTX", "INDX", "TRIS", "FACE", "NORM", "UV00", "VERT")
+
+    private fun parseLegacyGeom200(source: ByteBuffer, name: String): List<SubMesh> {
+        val b = source.duplicate().order(ByteOrder.LITTLE_ENDIAN)
+        val version = uint32(b); require(version in 200..205)
+        val count = boundedCount(uint32(b), "sub-mesh")
+        require(count in 1..10000) { "Invalid GEOM sub-mesh count: $count" }
+        val result = ArrayList<SubMesh>(count)
+        repeat(count) { subIndex ->
+            val start = b.position()
+            try {
+                require(b.remaining() >= 48) { "Truncated sub-mesh header" }
+                uint32(b) // flags
+                val min = FloatArray(3) { b.float }; val max = FloatArray(3) { b.float }
+                val material = uint32(b).toInt(); uint32(b) // material, primitive type
+                var parsed: SubMesh? = null
+                for (vertexOffset in 48..64 step 4) {
+                    for (countWords in 2..3) {
+                        val header = start + vertexOffset - countWords * 4
+                        if (header < start + 36 || header + countWords * 4 > b.limit()) continue
+                        val h = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(header) }
+                        val nv = uint32(h); val ni = uint32(h); val nt = if (countWords == 3) uint32(h) else 0L
+                        val indices = if (ni == 0L) nt * 3 else ni
+                        if (nv !in 1L..500_000L || indices !in 3L..1_500_000L) continue
+                        val vertexStart = start + vertexOffset
+                        if (vertexStart > b.limit()) continue
+                        for (stride in listOf(32, 24, 36, 40, 44, 48, 52, 64)) {
+                            for (indexSize in listOf(2, 4)) {
+                                val end = vertexStart.toLong() + nv * stride + indices * indexSize
+                                if (end > b.limit()) continue
+                                val vbuf = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(vertexStart); limit(vertexStart + nv.toInt() * stride) }.slice().order(ByteOrder.LITTLE_ENDIAN)
+                                val xyz = FloatArray(3) { vbuf.getFloat(it * 4) }
+                                if ((0..2).any { xyz[it] < min[it] - .1f || xyz[it] > max[it] + .1f }) continue
+                                val verts = parseStrideVertices(vbuf)
+                                val ibuf = b.duplicate().order(ByteOrder.LITTLE_ENDIAN).apply { position(vertexStart + nv.toInt() * stride); limit(end.toInt()) }
+                                val ix = IntArray(indices.toInt()) { if (indexSize == 2) ibuf.short.toInt() and 65535 else uint32(ibuf).toInt() }
+                                if (ix.any { it !in 0 until nv.toInt() }) continue
+                                parsed = SubMesh("${name}_$subIndex", material, verts, ix)
+                                b.position(end.toInt()); break
+                            }
+                            if (parsed != null) break
+                        }
+                        if (parsed != null) break
+                    }
+                    if (parsed != null) break
+                }
+                result += parsed ?: error("No valid vertex/index layout")
+            } catch (e: Exception) {
+                val bytes = ByteArray(minOf(48, b.limit() - start).coerceAtLeast(0))
+                b.duplicate().apply { position(start); get(bytes) }
+                val hex = bytes.joinToString(" ") { "%02X".format(it.toInt() and 255) }
+                throw IllegalArgumentException("GEOM sub-mesh $subIndex failed: ${e.message}. First 48B: $hex", e)
+            }
+        }
+        return result
+    }
 
     /** Walks tagged records without assuming that the GEOM version header has a fixed length. */
     private fun scanGeomPayload(source: ByteBuffer, name: String): SubMesh {
